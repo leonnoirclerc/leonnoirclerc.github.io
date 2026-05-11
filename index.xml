@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss  xmlns:atom="http://www.w3.org/2005/Atom" 
+      xmlns:media="http://search.yahoo.com/mrss/" 
+      xmlns:content="http://purl.org/rss/1.0/modules/content/" 
+      xmlns:dc="http://purl.org/dc/elements/1.1/" 
+      version="2.0">
+<channel>
+<title>Leon Noirclerc</title>
+<link>https://leonnoirclerc.github.io/</link>
+<atom:link href="https://leonnoirclerc.github.io/index.xml" rel="self" type="application/rss+xml"/>
+<description>Research notes, experiments, and projects.</description>
+<generator>quarto-1.9.37</generator>
+<lastBuildDate>Mon, 11 May 2026 00:00:00 GMT</lastBuildDate>
+<item>
+  <title>Welcome</title>
+  <dc:creator>Leon Noirclerc</dc:creator>
+  <link>https://leonnoirclerc.github.io/posts/welcome/</link>
+  <description><![CDATA[ 
+
+
+
+
+
+<p>This is the first entry. Mostly to confirm the deploy pipeline works.</p>
+<section id="what-lives-here" class="level2">
+<h2 class="anchored" data-anchor-id="what-lives-here">What lives here</h2>
+<ul>
+<li><strong>Long-form notes</strong> on projects I’m building — design decisions, benchmarks, and the reasoning behind the choices.</li>
+<li><strong>Short posts</strong> on tooling, libraries, and patterns that turned out to be load-bearing.</li>
+<li><strong>Project pages</strong> that point at the code and summarize what the project is, what worked, and what didn’t.</li>
+</ul>
+</section>
+<section id="what-doesnt" class="level2">
+<h2 class="anchored" data-anchor-id="what-doesnt">What doesn’t</h2>
+<p>Polished tutorials, opinion pieces unrelated to engineering, and anything that would be better as a tweet.</p>
+</section>
+<section id="how-posts-are-organized" class="level2">
+<h2 class="anchored" data-anchor-id="how-posts-are-organized">How posts are organized</h2>
+<p>Each post lives in its own folder under <code>posts/</code>, which lets me colocate figures, notebooks, and supporting files with the prose. The site is built with <a href="https://quarto.org">Quarto</a> and rendered on push by GitHub Actions.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Code blocks render with syntax highlighting and copy buttons:</span></span>
+<span id="cb1-2"><span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">def</span> hello(name: <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">str</span>) <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-&gt;</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">str</span>:</span>
+<span id="cb1-3">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> <span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"hello, </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>name<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span></span></code></pre></div></div>
+<p>And math works too:</p>
+<p><img src="https://latex.codecogs.com/png.latex?%0A%5Ctext%7Bscore%7D(q,%20d)%20=%20%5Csum_%7Bi%20%5Cin%20q%7D%20%5Cmax_%7Bj%20%5Cin%20d%7D%20%5Ccos(%5Cmathbf%7Bq%7D_i,%20%5Cmathbf%7Bd%7D_j)%0A"></p>
+<p>If you’re reading this, the pipeline is live.</p>
+
+
+<!-- -->
+
+</section>
+
+ ]]></description>
+  <category>meta</category>
+  <guid>https://leonnoirclerc.github.io/posts/welcome/</guid>
+  <pubDate>Mon, 11 May 2026 00:00:00 GMT</pubDate>
+</item>
+</channel>
+</rss>

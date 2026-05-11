@@ -1,0 +1,51 @@
+[
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "Posts",
+    "section": "",
+    "text": "Research notes, experiments, and projects. Updated as I learn things worth writing down.\n\n\n\n\n\n\n\n\n\nWelcome\n\n\n\nmeta\n\n\n\nWhat this site is for, and what to expect.\n\n\n\n\n\nMay 11, 2026\n\n1 min\n\n\n\n\nNo matching items"
+  },
+  {
+    "objectID": "posts/welcome/index.html",
+    "href": "posts/welcome/index.html",
+    "title": "Welcome",
+    "section": "",
+    "text": "This is the first entry. Mostly to confirm the deploy pipeline works."
+  },
+  {
+    "objectID": "posts/welcome/index.html#what-lives-here",
+    "href": "posts/welcome/index.html#what-lives-here",
+    "title": "Welcome",
+    "section": "What lives here",
+    "text": "What lives here\n\nLong-form notes on projects I’m building — design decisions, benchmarks, and the reasoning behind the choices.\nShort posts on tooling, libraries, and patterns that turned out to be load-bearing.\nProject pages that point at the code and summarize what the project is, what worked, and what didn’t."
+  },
+  {
+    "objectID": "posts/welcome/index.html#what-doesnt",
+    "href": "posts/welcome/index.html#what-doesnt",
+    "title": "Welcome",
+    "section": "What doesn’t",
+    "text": "What doesn’t\nPolished tutorials, opinion pieces unrelated to engineering, and anything that would be better as a tweet."
+  },
+  {
+    "objectID": "posts/welcome/index.html#how-posts-are-organized",
+    "href": "posts/welcome/index.html#how-posts-are-organized",
+    "title": "Welcome",
+    "section": "How posts are organized",
+    "text": "How posts are organized\nEach post lives in its own folder under posts/, which lets me colocate figures, notebooks, and supporting files with the prose. The site is built with Quarto and rendered on push by GitHub Actions.\n# Code blocks render with syntax highlighting and copy buttons:\ndef hello(name: str) -&gt; str:\n    return f\"hello, {name}\"\nAnd math works too:\n\\[\n\\text{score}(q, d) = \\sum_{i \\in q} \\max_{j \\in d} \\cos(\\mathbf{q}_i, \\mathbf{d}_j)\n\\]\nIf you’re reading this, the pipeline is live."
+  },
+  {
+    "objectID": "projects.html",
+    "href": "projects.html",
+    "title": "Projects",
+    "section": "",
+    "text": "Selected projects and experiments. Each links out to its repo, paper, or write-up.\n\n\n\n\n\n\n\n\nNo matching items"
+  },
+  {
+    "objectID": "about.html",
+    "href": "about.html",
+    "title": "About",
+    "section": "",
+    "text": "Leon Noirclerc. BSc in Communication Systems at EPFL, MSc in Data Science at ETH Zürich with a focus on machine learning.\nI use this blog to present personal projects, experiments, and thinking."
+  }
+]
