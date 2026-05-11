@@ -1,0 +1,15 @@
+---
+title: "Projects"
+listing:
+  contents: projects
+  sort: "date desc"
+  type: grid
+  categories: true
+  sort-ui: false
+  filter-ui: false
+  fields: [image, date, title, description, categories]
+page-layout: full
+title-block-banner: false
+---
+
+Selected projects and experiments. Each links out to its repo, paper, or write-up.

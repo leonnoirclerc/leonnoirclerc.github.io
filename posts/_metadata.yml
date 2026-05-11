@@ -1,0 +1,9 @@
+freeze: auto
+title-block-banner: false
+author: "Leon Noirclerc"
+toc: true
+toc-depth: 3
+format:
+  html:
+    code-fold: false
+    code-tools: true

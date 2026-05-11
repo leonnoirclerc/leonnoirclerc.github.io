@@ -1,0 +1,16 @@
+---
+title: "About"
+about:
+  template: trestles
+  links:
+    - icon: github
+      text: GitHub
+      href: https://github.com/leonnoirclerc
+    - icon: envelope
+      text: Email
+      href: mailto:l.noirclerc@aion-tech.ai
+---
+
+Leon Noirclerc. BSc in Communication Systems at EPFL, MSc in Data Science at ETH Zürich with a focus on machine learning.
+
+I use this blog to present personal projects, experiments, and thinking.

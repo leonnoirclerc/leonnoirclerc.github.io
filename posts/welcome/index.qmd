@@ -1,0 +1,36 @@
+---
+title: "Welcome"
+description: "What this site is for, and what to expect."
+date: "2026-05-11"
+categories: [meta]
+---
+
+This is the first entry. Mostly to confirm the deploy pipeline works.
+
+## What lives here
+
+- **Long-form notes** on projects I'm building — design decisions, benchmarks, and the reasoning behind the choices.
+- **Short posts** on tooling, libraries, and patterns that turned out to be load-bearing.
+- **Project pages** that point at the code and summarize what the project is, what worked, and what didn't.
+
+## What doesn't
+
+Polished tutorials, opinion pieces unrelated to engineering, and anything that would be better as a tweet.
+
+## How posts are organized
+
+Each post lives in its own folder under `posts/`, which lets me colocate figures, notebooks, and supporting files with the prose. The site is built with [Quarto](https://quarto.org) and rendered on push by GitHub Actions.
+
+```python
+# Code blocks render with syntax highlighting and copy buttons:
+def hello(name: str) -> str:
+    return f"hello, {name}"
+```
+
+And math works too:
+
+$$
+\text{score}(q, d) = \sum_{i \in q} \max_{j \in d} \cos(\mathbf{q}_i, \mathbf{d}_j)
+$$
+
+If you're reading this, the pipeline is live.

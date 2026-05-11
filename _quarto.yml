@@ -1,0 +1,55 @@
+project:
+  type: website
+  output-dir: _site
+  resources:
+    - "CNAME"
+
+website:
+  title: "Leon Noirclerc"
+  description: "Research notes, experiments, and projects."
+  site-url: https://leonnoirclerc.github.io
+  repo-url: https://github.com/leonnoirclerc/leonnoirclerc.github.io
+  open-graph: true
+  twitter-card: true
+  search:
+    location: navbar
+    type: overlay
+  navbar:
+    pinned: true
+    right:
+      - href: index.qmd
+        text: Posts
+      - href: projects.qmd
+        text: Projects
+      - href: about.qmd
+        text: About
+      - icon: rss
+        href: index.xml
+        aria-label: RSS feed
+      - icon: github
+        href: https://github.com/leonnoirclerc
+        aria-label: GitHub
+  page-footer:
+    left: "© 2026 Leon Noirclerc"
+    right:
+      - icon: github
+        href: https://github.com/leonnoirclerc
+      - icon: rss
+        href: index.xml
+
+format:
+  html:
+    theme:
+      light: [cosmo, theme-light.scss]
+      dark: [darkly, theme-dark.scss]
+    css: styles.css
+    toc: true
+    toc-depth: 3
+    code-copy: true
+    code-overflow: wrap
+    code-link: true
+    highlight-style: github
+    anchor-sections: true
+    fig-cap-location: bottom
+    tbl-cap-location: top
+    smooth-scroll: true

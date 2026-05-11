@@ -1,0 +1,16 @@
+---
+title: "Posts"
+listing:
+  contents: posts
+  sort: "date desc"
+  type: default
+  categories: true
+  sort-ui: false
+  filter-ui: false
+  feed: true
+  fields: [date, title, description, categories, reading-time]
+page-layout: full
+title-block-banner: false
+---
+
+Research notes, experiments, and projects. Updated as I learn things worth writing down.
