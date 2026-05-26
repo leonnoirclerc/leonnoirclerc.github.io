@@ -1,8 +1,9 @@
 freeze: auto
-title-block-banner: false
 author: "Leon Noirclerc"
 toc: true
 toc-depth: 3
+title-block-banner: cover.png
+title-block-banner-color: "white"
 format:
   html:
     code-fold: false

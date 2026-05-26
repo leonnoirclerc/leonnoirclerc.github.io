@@ -3,12 +3,20 @@ project:
   output-dir: _site
   resources:
     - "CNAME"
+    - "fonts/**"
+    - "logos/**"
+    - "images/**"
+    - "profile.jpg"
+    - "apple-touch-icon.png"
+    - "favicon.png"
+    - "favicon.svg"
 
 website:
   title: "Leon Noirclerc"
   description: "Research notes, experiments, and projects."
   site-url: https://leonnoirclerc.github.io
   repo-url: https://github.com/leonnoirclerc/leonnoirclerc.github.io
+  favicon: favicon.svg
   open-graph: true
   twitter-card: true
   search:
@@ -23,9 +31,6 @@ website:
         text: Projects
       - href: about.qmd
         text: About
-      - icon: rss
-        href: index.xml
-        aria-label: RSS feed
       - icon: github
         href: https://github.com/leonnoirclerc
         aria-label: GitHub
@@ -34,13 +39,28 @@ website:
     right:
       - icon: github
         href: https://github.com/leonnoirclerc
-      - icon: rss
-        href: index.xml
 
 format:
   html:
     theme: [cosmo, theme-light.scss]
     css: styles.css
+    include-after-body:
+      text: |
+        <script>
+        (function () {
+          function tagCategories() {
+            document.querySelectorAll('.listing-category').forEach(function (el) {
+              var slug = (el.textContent || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+              if (slug) el.classList.add('cat-' + slug);
+            });
+          }
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', tagCategories);
+          } else {
+            tagCategories();
+          }
+        })();
+        </script>
     toc: true
     toc-depth: 3
     code-copy: true

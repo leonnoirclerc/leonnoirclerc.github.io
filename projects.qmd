@@ -1,15 +1,25 @@
 ---
 title: "Projects"
 listing:
-  contents: projects
+  id: projects-list
+  contents: data/projects.yml
+  type: default
+  fields: [image, title, description, categories, date]
   sort: "date desc"
-  type: grid
-  categories: true
   sort-ui: false
   filter-ui: false
-  fields: [image, date, title, description, categories]
+  categories: false
 page-layout: full
 title-block-banner: false
 ---
 
-Selected projects and experiments. Each links out to its repo, paper, or write-up.
+Personal projects and experiments. Each links out to its repo or write-up.
+
+::: {.elsewhere}
+[![](logos/github.svg){.elsewhere-logo .elsewhere-logo-github} Open-source pull requests](https://github.com/search?q=is%3Apr+author%3Aleonnoirclerc+-user%3Aleonnoirclerc+is%3Apublic&type=pullrequests){.elsewhere-link}
+&nbsp;&nbsp;
+[![](logos/huggingface.svg){.elsewhere-logo} Hugging Face](https://huggingface.co/leonnoirclerc/activity/all){.elsewhere-link}
+:::
+
+::: {#projects-list}
+:::

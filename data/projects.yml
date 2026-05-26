@@ -1,0 +1,16 @@
+# Each entry renders as a row on the Projects page (same layout as the Posts feed).
+# Required: title, description, path, date.
+# Optional: image (relative or absolute URL), categories (list of tags).
+
+- title: "RAG on a laptop"
+  description: "A walkthrough of running retrieval-augmented generation locally on consumer hardware."
+  path: "https://github.com/leonnoirclerc/rag-on-a-laptop"
+  date: "2026-05-20"
+  categories: [python, rag, ml]
+
+- title: "French real-estate explorer"
+  description: "Interactive map for exploring French real estate transactions (DVF) with cadastral parcel visualization."
+  path: "https://github.com/leonnoirclerc/french-real-estate-explorer"
+  image: images/french-real-estate-explorer.png
+  date: "2026-01-11"
+  categories: [python, geospatial, data-viz]

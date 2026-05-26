@@ -2,15 +2,61 @@
 title: "About"
 about:
   template: trestles
+  image: profile.jpg
+  image-shape: round
+  image-width: 12em
   links:
+    - icon: linkedin
+      text: LinkedIn
+      href: https://www.linkedin.com/in/leonnoirclerc
     - icon: github
       text: GitHub
       href: https://github.com/leonnoirclerc
     - icon: envelope
       text: Email
-      href: mailto:l.noirclerc@aion-tech.ai
+      href: mailto:leon.noirclerc@icloud.com
 ---
 
-Leon Noirclerc. BSc in Communication Systems at EPFL, MSc in Data Science at ETH Zürich with a focus on machine learning.
+Hi, I'm Leon. I studied *Communication Systems* at **EPFL**, then *Data Science* with a focus on machine learning at **ETH Zürich**.
 
-I use this blog to present personal projects, experiments, and thinking.
+This blog is where I share personal projects, experiments, and notes from what I'm working on.
+
+::: {.alumni-logos}
+[![EPFL](logos/epfl.svg)](https://www.epfl.ch/)
+[![ETH Zürich](logos/eth.svg)](https://ethz.ch/)
+:::
+
+```{=html}
+<a class="about-link about-link-hf" href="https://huggingface.co/leonnoirclerc/activity/all" rel="" target="" hidden>
+  <img src="logos/huggingface.svg" class="about-link-hf-logo" alt=""/>
+  <span class="about-link-text">Hugging Face</span>
+</a>
+
+<script>
+(function () {
+  function move() {
+    const entity = document.querySelector('.about-entity');
+    if (!entity) return;
+    const links = entity.querySelector('.about-links');
+
+    const logos = document.querySelector('.alumni-logos');
+    if (logos && links) {
+      entity.insertBefore(logos, links);
+    } else if (logos) {
+      entity.appendChild(logos);
+    }
+
+    const hf = document.querySelector('.about-link-hf');
+    if (hf && links) {
+      hf.removeAttribute('hidden');
+      links.appendChild(hf);
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', move);
+  } else {
+    move();
+  }
+})();
+</script>
+```
