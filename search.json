@@ -60,6 +60,6 @@
     "href": "projects.html",
     "title": "Projects",
     "section": "",
-    "text": "Personal projects and experiments. Each links out to its repo or write-up.\n\n Open-source pull requests     Hugging Face\n\n\n\n\n\n\n\n\n\n\n\nRAG on a laptop\n\n\n\nrag\n\nmlx\n\ndocling\n\npython\n\n\n\nGrounded retrieval over PDFs running end-to-end on Apple Silicon. Docling for parsing (with MLX-ported CodeFormulaV2 + RT-DETRv2), BGE-M3 + Jina-ColBERT-v2 on MLX for retrieval, Qdrant for the vector store, FastAPI + React for the inspector.\n\n\n\n\n\nMay 18, 2026\n\n\n\n\n\n\n\n\n\n\n\n\nFrench real-estate explorer\n\n\n\npython\n\ngeospatial\n\ndata-viz\n\n\n\nInteractive map for exploring French real estate transactions (DVF) with cadastral parcel visualization.\n\n\n\n\n\nJan 11, 2026\n\n\n\n\n\nNo matching items"
+    "text": "Personal projects and experiments. Each links out to its repo or write-up.\n\n Open-source pull requests     Hugging Face\n\n\n\n\n\n\n\n\n\n\n\nRAG on a laptop\n\n\n\nrag\n\nmlx\n\ndocling\n\npython\n\n\n\nGrounded retrieval over PDFs, end-to-end on Apple Silicon.\n\n\n\n\n\nMay 18, 2026\n\n\n\n\n\n\n\n\n\n\n\n\nFrench real-estate explorer\n\n\n\npython\n\ngeospatial\n\ndata-viz\n\n\n\nInteractive map for exploring French real estate transactions (DVF) with cadastral parcel visualization.\n\n\n\n\n\nJan 11, 2026\n\n\n\n\n\nNo matching items"
   }
 ]
