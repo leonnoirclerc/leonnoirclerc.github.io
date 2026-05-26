@@ -3,9 +3,9 @@
 # Optional: image (relative or absolute URL), categories (list of tags).
 
 - title: "RAG on a laptop"
-  description: "Grounded retrieval over PDFs running end-to-end on Apple Silicon. Docling for parsing (with MLX-ported CodeFormulaV2 + RT-DETRv2), BGE-M3 + Jina-ColBERT-v2 on MLX for retrieval, Qdrant for the vector store, FastAPI + React for the inspector."
+  description: "Grounded retrieval over PDFs, end-to-end on Apple Silicon."
   path: "posts/rag-on-a-laptop/"
-  image: "posts/rag-on-a-laptop/pipeline.svg"
+  image: "posts/rag-on-a-laptop/gpu_poor.png"
   date: "2026-05-18"
   categories: [rag, mlx, docling, python]
 
