@@ -4,7 +4,7 @@
 
 - title: "RAG on a laptop"
   description: "Grounded retrieval over PDFs, end-to-end on Apple Silicon."
-  path: "posts/rag-on-a-laptop/"
+  path: "https://github.com/leonnoirclerc/rag"
   image: "posts/rag-on-a-laptop/gpu_poor.png"
   date: "2026-05-18"
   categories: [rag, mlx, docling, python]
