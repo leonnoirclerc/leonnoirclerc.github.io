@@ -9,71 +9,704 @@
 <link>https://leonnoirclerc.github.io/</link>
 <atom:link href="https://leonnoirclerc.github.io/index.xml" rel="self" type="application/rss+xml"/>
 <description>Research notes, experiments, and projects.</description>
-<generator>quarto-1.9.37</generator>
-<lastBuildDate>Mon, 11 May 2026 00:00:00 GMT</lastBuildDate>
+<generator>quarto-1.9.38</generator>
+<lastBuildDate>Mon, 18 May 2026 00:00:00 GMT</lastBuildDate>
 <item>
-  <title>Welcome</title>
+  <title>A grounded RAG system, on a laptop</title>
   <dc:creator>Leon Noirclerc</dc:creator>
-  <link>https://leonnoirclerc.github.io/posts/welcome/</link>
+  <link>https://leonnoirclerc.github.io/posts/rag-on-a-laptop/</link>
   <description><![CDATA[ 
 
 
 
 
-<p>This is the first entry. Mostly to confirm the deploy pipeline works.</p>
-<section id="what-lives-here" class="level2">
-<h2 class="anchored" data-anchor-id="what-lives-here">What lives here</h2>
+
+<p>This is a post about building a grounded RAG system from scratch. The goal is simple to state: point it at a stack of PDFs, ask a question in natural language, get back an answer together with the exact bounding box on the exact page that answer came from. The constraint is what makes it interesting. The whole thing has to run on the laptop I’m writing on, a MacBook Pro M2 with 16 GB of unified memory, no cloud GPU.</p>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://leonnoirclerc.github.io/posts/rag-on-a-laptop/gpu_poor.png" class="img-fluid figure-img"></p>
+<figcaption>The main constraint: we are GPU poor :(</figcaption>
+</figure>
+</div>
+<p>The post starts from the simplest version of the pipeline that hits the goal, then iterates from there. Each iteration is its own subsection, with the reasoning, the numbers, and a link to whatever code or model weights came out of it.</p>
+<section id="grounded-fast-efficient" class="level2">
+<h2 class="anchored" data-anchor-id="grounded-fast-efficient">Grounded, Fast, Efficient</h2>
+<p>Three goals, easy to state.</p>
+<p><strong>Grounded.</strong> Every answer has to point back to the bounding box on the page it came from. Not a citation in plain text, a visible region on the rendered page, one you can click on and verify.</p>
+<p><strong>Fast.</strong> Sub-second retrieval on a single query. Anything slower turns iteration into a chore, and this is a system meant to be iterated on a lot.</p>
+<p><strong>Efficient.</strong> Fits in 16 GB. Runs alongside a browser, an editor, and the Docker stack the system itself depends on. No cloud GPU, no API key billed by the token. The whole thing needs to be self-contained enough that someone could clone the repo and have it work.</p>
+</section>
+<section id="the-stack" class="level2">
+<h2 class="anchored" data-anchor-id="the-stack">The stack</h2>
+<p>Anything we want to retrieve later, we have to store first. The system has three layers underneath: the binary files that come in, the structured representation we extract from them, and the vector index we build on top to make them searchable.</p>
+<p><strong>Document storage.</strong> PDFs land in a blob store keyed by a UUID. Local case is just a directory; behind a thin <a href="https://github.com/fsspec/filesystem_spec">fsspec</a> wrapper so the day this needs to live in S3 instead, the change is a config swap.</p>
+<p><strong>The structured database.</strong> A document has pages, each page has layout elements (paragraphs, headings, tables, figures, formulas, code blocks), and each element has one or more bounding boxes. That hierarchy lives in <a href="https://www.postgresql.org/">Postgres</a> via <a href="https://www.sqlalchemy.org/">SQLAlchemy</a>. On top of the elements come <strong>chunks</strong>, the unit the embedder sees and retrieval returns. Each chunk keeps a link back to the elements it covers, so a hit can be traced to specific page regions.</p>
+<p><strong>The vector store.</strong> One vector per chunk, in <a href="https://qdrant.tech/">Qdrant</a>, keyed by chunk UUID, with a small payload (just the parent document id, for filtering). Everything else stays in Postgres.</p>
+<p><strong>The embedder.</strong> Starting point is <a href="https://huggingface.co/BAAI/bge-m3">bge-m3</a>: 1024-dimensional vectors, ~1.1 GB resident at fp16 on Apple Silicon, a defensible default for general-purpose retrieval.</p>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://leonnoirclerc.github.io/posts/rag-on-a-laptop/pipeline.svg" class="img-fluid figure-img"></p>
+<figcaption>Pipeline overview: blob storage, Postgres with the document, page, and element hierarchy, and the vector database side by side.</figcaption>
+</figure>
+</div>
+<p>The parser is where the real work begins, and that’s where the rest of this post lives.</p>
+</section>
+<section id="the-parsing" class="level2">
+<h2 class="anchored" data-anchor-id="the-parsing">The parsing</h2>
+<p><a href="https://github.com/docling-project/docling">Docling</a> is the tool we use to turn a PDF into a structured tree. That tree is the input to everything that follows: chunking, embedding, retrieval, grounding. It controls what each later stage can see. So before we build any of that on top, we should know how the parsing actually behaves on our corpus, what it costs, and whether the defaults are the right ones.</p>
+<section id="two-routes-docling-offers" class="level3">
+<h3 class="anchored" data-anchor-id="two-routes-docling-offers">Two routes Docling offers</h3>
+<p>Docling exposes two top-level ways to turn a page into structured content.</p>
+<p>The first is the <strong>traditional pipeline</strong>: a layered stack of small specialist models running in sequence. A CNN layout detector finds text blocks, tables, pictures, formulas, and code. A separate model parses table structure into rows and columns. A small vision-language model runs on cropped code and formula regions to turn them into LaTeX or source text. A figure classifier labels pictures by type. The text inside each block comes from the PDF’s own text layer, extracted by a dedicated parser. Each stage has one job, runs on one slice of the page, and produces one piece of the final document.</p>
+<p>The second is the <strong>VLM pipeline</strong>: one large vision-language model gets the rendered page image and emits the entire structured document for that page in one shot. No separate layout step. No separate table parsing. The model decides where the text blocks are, where the tables are, what the cells contain, which regions are pictures, all at once. The Docling-blessed model for this path is <a href="https://huggingface.co/ibm-granite/granite-docling-258M">Granite-Docling-258M</a>, available as an MLX export for Apple Silicon.</p>
+<p>Both routes produce a structurally similar <code>DoclingDocument</code>, and Docling lets us swap between them by changing a single configuration object.</p>
+</section>
+<section id="what-each-route-costs-on-our-corpus" class="level3">
+<h3 class="anchored" data-anchor-id="what-each-route-costs-on-our-corpus">What each route costs on our corpus</h3>
+<p>Seven research papers, 155 pages total. Each variant runs each PDF once untimed (warmup) then three times measured; we report the median wall time per variant per doc, summed across the corpus. All on Apple Silicon. Code: <a href="https://github.com/leonnoirclerc/rag/tree/d72e8993f047c6b559062edfb7e5156299e8f33c/benchmark/pdf_pipeline"><code>benchmark/pdf_pipeline/</code></a>.</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Variant</th>
+<th style="text-align: right;">Total wall (s)</th>
+<th style="text-align: right;">Per-page (s)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>traditional</td>
+<td style="text-align: right;">582.4</td>
+<td style="text-align: right;">3.8</td>
+</tr>
+<tr class="even">
+<td>VLM (Granite-Docling-258M MLX)</td>
+<td style="text-align: right;">~2 000</td>
+<td style="text-align: right;">~13</td>
+</tr>
+</tbody>
+</table>
+<p>Roughly one order of magnitude. The traditional pipeline does cheap text extraction on the bulk of the page (the prose, where the PDF already has a clean text layer) and saves the expensive VLM passes for the few regions that genuinely need them: the cropped code and formula boxes. The VLM pipeline pays the full VLM cost on every page to re-derive content that is already sitting in the PDF text stream. For our corpus, which is born-digital papers with clean text layers, the traditional pipeline is the right trade.</p>
+</section>
+<section id="inside-the-traditional-pipeline" class="level3">
+<h3 class="anchored" data-anchor-id="inside-the-traditional-pipeline">Inside the traditional pipeline</h3>
+<p>The traditional pipeline is a pipeline in the literal sense: pages stream through ordered stages, with multiple pages in different stages at once. Each stage owns one piece of the page-to-document translation, and each one is a place we can attack independently.</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Stage</th>
+<th>What it does</th>
+<th>Implementation</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>page_parse</code></td>
+<td>Render the page to an image at two scales, extract text cells with bboxes from the PDF text layer</td>
+<td>pypdfium2 (C++) for rendering, <a href="https://github.com/docling-project/docling-parse">docling-parse</a> (C++) for text extraction</td>
+</tr>
+<tr class="even">
+<td><code>layout</code></td>
+<td>Detect text blocks, tables, pictures, formulas, code regions on the rendered page</td>
+<td>Object-detection CNN running on MPS</td>
+</tr>
+<tr class="odd">
+<td><code>table_structure</code></td>
+<td>Parse the cell grid of each detected table</td>
+<td>TableFormer V1, CPU on Apple Silicon</td>
+</tr>
+<tr class="even">
+<td><code>doc_enrich</code></td>
+<td>Crop each detected code or formula region and run a VLM on it to get LaTeX or source</td>
+<td>Granite-Docling-258M, MLX</td>
+</tr>
+<tr class="odd">
+<td><code>reading_order</code></td>
+<td>Decide the order in which elements appear in the final document</td>
+<td>CPU heuristics</td>
+</tr>
+<tr class="even">
+<td><code>doc_assemble</code></td>
+<td>Build the final <code>DoclingDocument</code> tree</td>
+<td>Pure Python</td>
+</tr>
+</tbody>
+</table>
+<p>Picture classification piggybacks on <code>doc_enrich</code>. Tables are a stage of their own. Code and math sit inside <code>doc_enrich</code> because they share the same VLM and the same per-region inference path.</p>
+</section>
+<section id="where-is-the-bottleneck" class="level3">
+<h3 class="anchored" data-anchor-id="where-is-the-bottleneck">Where is the bottleneck?</h3>
+<p>Per-page wall time across the corpus, with tables on:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Stage</th>
+<th style="text-align: right;">Per-page wall (ms)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>page_parse</code></td>
+<td style="text-align: right;">500</td>
+</tr>
+<tr class="even">
+<td><code>layout</code></td>
+<td style="text-align: right;">497</td>
+</tr>
+<tr class="odd">
+<td><code>table_structure</code></td>
+<td style="text-align: right;">544</td>
+</tr>
+<tr class="even">
+<td><code>doc_enrich</code></td>
+<td style="text-align: right;"><strong>2 936</strong></td>
+</tr>
+</tbody>
+</table>
+<p><code>doc_enrich</code> dominates the average. But the average hides the most useful fact: the bottleneck depends on the document. Per-page wall time, split per paper:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 15%">
+<col style="width: 21%">
+<col style="width: 21%">
+<col style="width: 21%">
+<col style="width: 21%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>PDF</th>
+<th style="text-align: right;">Pages</th>
+<th style="text-align: right;">Wall (s/page)</th>
+<th style="text-align: right;"><code>doc_enrich</code> (s/page)</th>
+<th style="text-align: right;">doc_enrich / wall</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>01_attention_is_all_you_need.pdf</td>
+<td style="text-align: right;">15</td>
+<td style="text-align: right;">1.27</td>
+<td style="text-align: right;">0.63</td>
+<td style="text-align: right;">50%</td>
+</tr>
+<tr class="even">
+<td>02_mistral_7b.pdf</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">0.79</td>
+<td style="text-align: right;">0.09</td>
+<td style="text-align: right;">12%</td>
+</tr>
+<tr class="odd">
+<td>03_mixtral_8x7b.pdf</td>
+<td style="text-align: right;">13</td>
+<td style="text-align: right;">1.42</td>
+<td style="text-align: right;">0.52</td>
+<td style="text-align: right;">37%</td>
+</tr>
+<tr class="even">
+<td>04_qjl.pdf</td>
+<td style="text-align: right;">13</td>
+<td style="text-align: right;">4.81</td>
+<td style="text-align: right;"><strong>3.85</strong></td>
+<td style="text-align: right;">80%</td>
+</tr>
+<tr class="odd">
+<td>05_polarquant.pdf</td>
+<td style="text-align: right;">22</td>
+<td style="text-align: right;">8.72</td>
+<td style="text-align: right;"><strong>7.97</strong></td>
+<td style="text-align: right;">91%</td>
+</tr>
+<tr class="even">
+<td>06_turboquant.pdf</td>
+<td style="text-align: right;">25</td>
+<td style="text-align: right;">6.36</td>
+<td style="text-align: right;"><strong>5.39</strong></td>
+<td style="text-align: right;">85%</td>
+</tr>
+<tr class="odd">
+<td>07_deepseek_v4.pdf</td>
+<td style="text-align: right;">58</td>
+<td style="text-align: right;">2.15</td>
+<td style="text-align: right;">1.34</td>
+<td style="text-align: right;">62%</td>
+</tr>
+</tbody>
+</table>
+<p>A page of mistral costs 90 ms in <code>doc_enrich</code>. A page of polarquant costs 8 seconds. Two orders of magnitude. The reason is what the layout step finds on each page: very few formulas in the text-heavy papers, dozens of code and formula crops per page in the quantization papers. That spread is what makes a corpus-wide “where do I optimise” question deceptive: optimising the rendering backend would barely move polarquant, and optimising the formula VLM would barely move mistral. We attack the stage that dominates the documents that matter. For us, that’s the math-heavy papers, and that means the code and formula VLM is the first place to look.</p>
+</section>
+<section id="first-improvement-the-code-formula-model" class="level3">
+<h3 class="anchored" data-anchor-id="first-improvement-the-code-formula-model">First improvement: the code &amp; formula model</h3>
+<p><code>doc_enrich</code> is a per-region VLM inference. Every code block and every math formula the layout step detects gets cropped from the rendered page and sent through a vision-language model that emits the LaTeX (for formulas) or source text with a language tag (for code). On the math-heavy papers there can be dozens of these per page. The VLM is what the stage is.</p>
+<section id="two-models-for-the-job" class="level4">
+<h4 class="anchored" data-anchor-id="two-models-for-the-job">Two models for the job</h4>
+<p>Two candidates exist for this slot. The default is <a href="https://huggingface.co/ibm-granite/granite-docling-258M">Granite-Docling-258M</a>, the same general-purpose document VLM that also powers Docling’s full-page VLM pipeline. The natural specialist is <a href="https://huggingface.co/docling-project/CodeFormulaV2">CodeFormulaV2</a>, purpose-built for crop-level transcription and trained on millions of code and formula images. They are similar in size (~300 M parameters). Docling’s <a href="https://docling-project.github.io/docling/usage/model_catalog/#inference-engines-by-model-family">model catalog</a> lists CodeFormulaV2 as the recommended option for the code/formula stage. The catch is in the same table: CodeFormulaV2’s supported inference engines are <strong>CPU / CUDA / XPU</strong>. There is no MLX entry.</p>
+</section>
+<section id="porting-codeformulav2-to-mlx" class="level4">
+<h4 class="anchored" data-anchor-id="porting-codeformulav2-to-mlx">Porting CodeFormulaV2 to MLX</h4>
+<p>CodeFormulaV2 is an <a href="https://huggingface.co/HuggingFaceM4/Idefics3-8B-Llama3">Idefics3</a> finetune, and Idefics3 is already a first-class architecture in <a href="https://github.com/Blaizzy/mlx-vlm">Blaizzy/mlx-vlm</a>. So the work is a weight conversion plus a small contribution that registers CodeFormulaV2 as a supported target of the existing <code>idefics3</code> runtime. Three quantised variants are published:</p>
 <ul>
-<li><strong>Long-form notes</strong> on projects I’m building — design decisions, benchmarks, and the reasoning behind the choices.</li>
-<li><strong>Short posts</strong> on tooling, libraries, and patterns that turned out to be load-bearing.</li>
-<li><strong>Project pages</strong> that point at the code and summarize what the project is, what worked, and what didn’t.</li>
+<li><a href="https://huggingface.co/mlx-community/CodeFormulaV2-mlx-bf16"><code>mlx-community/CodeFormulaV2-mlx-bf16</code></a></li>
+<li><a href="https://huggingface.co/mlx-community/CodeFormulaV2-mlx-q8"><code>mlx-community/CodeFormulaV2-mlx-q8</code></a></li>
+<li><a href="https://huggingface.co/mlx-community/CodeFormulaV2-mlx-q4"><code>mlx-community/CodeFormulaV2-mlx-q4</code></a></li>
 </ul>
 </section>
-<section id="what-doesnt" class="level2">
-<h2 class="anchored" data-anchor-id="what-doesnt">What doesn’t</h2>
-<p>Polished tutorials, opinion pieces unrelated to engineering, and anything that would be better as a tweet.</p>
+<section id="cpu-vs-mlx" class="level4">
+<h4 class="anchored" data-anchor-id="cpu-vs-mlx">CPU vs MLX</h4>
+<p>Three formula crops harvested from a page of <code>polarquant.pdf</code>, run through CodeFormulaV2 on both backends with greedy decode, identical inputs, two timed runs each:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Crop</th>
+<th>Output</th>
+<th style="text-align: right;">CPU torch (s)</th>
+<th style="text-align: right;">MLX bf16 (s)</th>
+<th style="text-align: right;">Speedup</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>short formula</td>
+<td>19 tokens</td>
+<td style="text-align: right;">2.06 / 2.18</td>
+<td style="text-align: right;">0.89 / 0.89</td>
+<td style="text-align: right;">~2.3×</td>
+</tr>
+<tr class="even">
+<td>medium formula</td>
+<td>151 tokens</td>
+<td style="text-align: right;">4.93 / 4.86</td>
+<td style="text-align: right;">1.70 / 1.68</td>
+<td style="text-align: right;">~2.9×</td>
+</tr>
+<tr class="odd">
+<td>medium formula</td>
+<td>124 tokens</td>
+<td style="text-align: right;">4.30 / 4.29</td>
+<td style="text-align: right;">1.55 / 1.52</td>
+<td style="text-align: right;">~2.8×</td>
+</tr>
+<tr class="even">
+<td><strong>median</strong></td>
+<td></td>
+<td style="text-align: right;"><strong>4.30</strong></td>
+<td style="text-align: right;"><strong>1.54</strong></td>
+<td style="text-align: right;"><strong>2.8×</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Per crop, MLX is roughly 2.8× faster. The gap compounds across the math-heavy papers, where a single page can carry dozens of code and formula crops; across the full corpus on the MLX path, <code>doc_enrich</code> costs 269 seconds out of 329 seconds total wall.</p>
+<p>Per-page <code>doc_enrich</code> cost on the math-heavy papers, MLX:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>PDF</th>
+<th style="text-align: right;">Pages</th>
+<th style="text-align: right;"><code>doc_enrich</code> (s/page)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>04_qjl.pdf</td>
+<td style="text-align: right;">13</td>
+<td style="text-align: right;">2.68</td>
+</tr>
+<tr class="even">
+<td>05_polarquant.pdf</td>
+<td style="text-align: right;">22</td>
+<td style="text-align: right;">4.77</td>
+</tr>
+<tr class="odd">
+<td>06_turboquant.pdf</td>
+<td style="text-align: right;">25</td>
+<td style="text-align: right;">2.65</td>
+</tr>
+<tr class="even">
+<td>07_deepseek_v4.pdf</td>
+<td style="text-align: right;">58</td>
+<td style="text-align: right;">0.82</td>
+</tr>
+</tbody>
+</table>
+<p>The model the catalog actually recommends is now available to the laptop user, on the hardware the laptop has.</p>
 </section>
-<section id="how-posts-are-organized" class="level2">
-<h2 class="anchored" data-anchor-id="how-posts-are-organized">How posts are organized</h2>
-<p>Each post lives in its own folder under <code>posts/</code>, which lets me colocate figures, notebooks, and supporting files with the prose. The site is built with <a href="https://quarto.org">Quarto</a> and rendered on push by GitHub Actions.</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><span class="co" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;"># Code blocks render with syntax highlighting and copy buttons:</span></span>
-<span id="cb1-2"><span class="kw" style="color: #003B4F;
-background-color: null;
-font-weight: bold;
-font-style: inherit;">def</span> hello(name: <span class="bu" style="color: null;
-background-color: null;
-font-style: inherit;">str</span>) <span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">-&gt;</span> <span class="bu" style="color: null;
-background-color: null;
-font-style: inherit;">str</span>:</span>
-<span id="cb1-3">    <span class="cf" style="color: #003B4F;
-background-color: null;
-font-weight: bold;
-font-style: inherit;">return</span> <span class="ss" style="color: #20794D;
-background-color: null;
-font-style: inherit;">f"hello, </span><span class="sc" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">{</span>name<span class="sc" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">}</span><span class="ss" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"</span></span></code></pre></div></div>
-<p>And math works too:</p>
-<p><img src="https://latex.codecogs.com/png.latex?%0A%5Ctext%7Bscore%7D(q,%20d)%20=%20%5Csum_%7Bi%20%5Cin%20q%7D%20%5Cmax_%7Bj%20%5Cin%20d%7D%20%5Ccos(%5Cmathbf%7Bq%7D_i,%20%5Cmathbf%7Bd%7D_j)%0A"></p>
-<p>If you’re reading this, the pipeline is live.</p>
+</section>
+<section id="second-improvement-the-layout-detector" class="level3">
+<h3 class="anchored" data-anchor-id="second-improvement-the-layout-detector">Second improvement: the layout detector</h3>
+<p>The <code>layout</code> stage uses <a href="https://huggingface.co/docling-project/docling-layout-heron"><code>docling-layout-heron</code></a>, an RT-DETRv2 object detector. Docling runs it on MPS through PyTorch. We ported RT-DETRv2 to MLX in <a href="https://github.com/Blaizzy/mlx-vlm/pull/1195">mlx-vlm PR #1195</a>, with the bf16 weights published at:</p>
+<ul>
+<li><a href="https://huggingface.co/mlx-community/docling-layout-heron-mlx-bf16"><code>mlx-community/docling-layout-heron-mlx-bf16</code></a></li>
+<li><a href="https://huggingface.co/mlx-community/docling-layout-heron-101-mlx-bf16"><code>mlx-community/docling-layout-heron-101-mlx-bf16</code></a>.</li>
+</ul>
+<p>Full-corpus layout inference, 155 pages, median of 3 measured loops per PDF:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Backend</th>
+<th style="text-align: right;">Corpus wall (s)</th>
+<th style="text-align: right;">Per-page (s)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>PyTorch on MPS (Docling default)</td>
+<td style="text-align: right;">39.20</td>
+<td style="text-align: right;">0.253</td>
+</tr>
+<tr class="even">
+<td><strong>MLX bf16 (this port)</strong></td>
+<td style="text-align: right;"><strong>27.78</strong></td>
+<td style="text-align: right;"><strong>0.179</strong></td>
+</tr>
+</tbody>
+</table>
+<p>About 1.4× faster on the same model, same corpus, same hardware. End-to-end, the layout stage is a small fraction of total wall (<code>doc_enrich</code> still dominates), so this iteration moves the corpus number by only a few seconds. The win is real but local; we keep it because the change is mechanical and the port lives in mlx-vlm anyway.</p>
+</section>
+<section id="results" class="level3">
+<h3 class="anchored" data-anchor-id="results">Results</h3>
+<p>The two iterations together, CodeFormulaV2 on MLX for <code>doc_enrich</code> and RT-DETRv2 on MLX for <code>layout</code>, change the parsing budget on the same corpus, same hardware, same papers. Per-stage corpus totals (s), comparing the CPU path Docling’s catalog recommends (no MLX engine exists today for CodeFormulaV2 on Apple Silicon) to the same pipeline with our two ports plugged in:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Stage</th>
+<th style="text-align: right;">CPU baseline</th>
+<th style="text-align: right;">+ MLX ports (this work)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>page_parse</code></td>
+<td style="text-align: right;">30.2</td>
+<td style="text-align: right;">34.1</td>
+</tr>
+<tr class="even">
+<td><code>layout</code></td>
+<td style="text-align: right;">70.6</td>
+<td style="text-align: right;"><strong>32.1</strong></td>
+</tr>
+<tr class="odd">
+<td><code>doc_enrich</code></td>
+<td style="text-align: right;"><strong>6 479.6</strong></td>
+<td style="text-align: right;"><strong>260.5</strong></td>
+</tr>
+<tr class="even">
+<td><code>doc_assemble</code></td>
+<td style="text-align: right;">1.0</td>
+<td style="text-align: right;">0.7</td>
+</tr>
+<tr class="odd">
+<td><code>reading_order</code></td>
+<td style="text-align: right;">0.6</td>
+<td style="text-align: right;">0.3</td>
+</tr>
+</tbody>
+</table>
+<p><code>doc_enrich</code> is the entire story: 6 480 s drops to 260 s, a 24.9× shrink on the stage that owns 99 % of the CPU baseline. The layout port adds a 2.2× speedup on its own stage. The other stages are unchanged Docling code.</p>
+<p>Corpus-wide:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 20%">
+<col style="width: 26%">
+<col style="width: 26%">
+<col style="width: 26%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Pipeline configuration</th>
+<th style="text-align: right;">Total wall</th>
+<th style="text-align: right;">Per-page (s)</th>
+<th style="text-align: right;">Speedup</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>CodeFormulaV2 on CPU (Docling catalog recommendation)</td>
+<td style="text-align: right;"><strong>6 556 s</strong> (1 h 49 m)</td>
+<td style="text-align: right;">42.3</td>
+<td style="text-align: right;">1.0×</td>
+</tr>
+<tr class="even">
+<td>CodeFormulaV2 MLX + RT-DETRv2 MLX (this work)</td>
+<td style="text-align: right;"><strong>301 s</strong> (5 min)</td>
+<td style="text-align: right;">1.94</td>
+<td style="text-align: right;"><strong>21.8×</strong></td>
+</tr>
+</tbody>
+</table>
+<p>From 1 h 49 m to 5 minutes on the same laptop, same papers, same model recommended by Docling’s catalog. What lands in Postgres at the end of it is the same <code>DoclingDocument</code> tree, with the same bounding boxes, ready for the next chapter: chunking and the embedder.</p>
+</section>
+</section>
+<section id="the-embedding" class="level2">
+<h2 class="anchored" data-anchor-id="the-embedding">The embedding</h2>
+<p>The parser produces paragraph-anchored chunks. The embedder turns those chunks (and the user’s questions) into the vectors a similarity search will compare. The choice anchors everything downstream, so it is worth settling now, before we touch hybrid retrieval or reranking.</p>
+<p>The usual framing is “pick the highest-scoring model on MTEB and move on”. For this project, three project-specific criteria sit above leaderboard position.</p>
+<p><strong>Multilingual.</strong> The corpus is mostly English today, but the system should accept French papers and French questions without rebuilding the index. That rules out most of the small-and-fast end of the leaderboard.</p>
+<p><strong>Sub-1B parameters.</strong> The pipeline already holds the parser, the layout detector, the formula VLM, and Qdrant resident. The embedder coexists with those on a 16 GB laptop. 7B and 8B models are out.</p>
+<p><strong>Recall@k matters most at this stage.</strong> The retriever in this chapter is the first stage of a pipeline that will get a sparse-search leg (BM25 with RRF fusion) and a late-interaction reranker over the top-k. Both of those add precision back at the top of the ranking. What they cannot do is rescue a paragraph the dense retriever never returned. The metric to optimise here is <em>“did the relevant paragraph make it into the top-k candidate pool I will hand to the next stage?”</em> That is recall@k.</p>
+<section id="the-candidates-models" class="level3">
+<h3 class="anchored" data-anchor-id="the-candidates-models">The candidates models</h3>
+<p>Four multilingual families, each in native precision (fp16 or bf16) and in 8-bit weight quantisation. All four run on Apple Silicon through <a href="https://github.com/Blaizzy/mlx-embeddings"><code>mlx-embeddings</code></a>. None of them required new MLX model code: the CLS-pooling dispatch we used to need a local patch for is <a href="https://github.com/Blaizzy/mlx-embeddings/pull/61">merged upstream</a> now.</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Family</th>
+<th style="text-align: right;">Params</th>
+<th>Architecture</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><a href="https://huggingface.co/BAAI/bge-m3">bge-m3</a></td>
+<td style="text-align: right;">568 M</td>
+<td>XLM-RoBERTa-large</td>
+<td>100+ languages, CLS-pooled.</td>
+</tr>
+<tr class="even">
+<td><a href="https://huggingface.co/Qwen/Qwen3-Embedding-0.6B">Qwen3-Embedding-0.6B</a></td>
+<td style="text-align: right;">600 M</td>
+<td>Qwen3 decoder</td>
+<td>Last-token pooling, asymmetric (query prompt).</td>
+</tr>
+<tr class="odd">
+<td><a href="https://huggingface.co/Qwen/Qwen3-Embedding-4B">Qwen3-Embedding-4B</a></td>
+<td style="text-align: right;">4 000 M</td>
+<td>Qwen3 decoder</td>
+<td>Same family, 6.7× the parameters. Top of our size envelope.</td>
+</tr>
+<tr class="even">
+<td><a href="https://huggingface.co/Snowflake/snowflake-arctic-embed-l-v2.0">snowflake-arctic-embed-l-v2.0</a></td>
+<td style="text-align: right;">568 M</td>
+<td>XLM-RoBERTa-large</td>
+<td>74 languages, CLS-pooled.</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="dense-recallk" class="level3">
+<h3 class="anchored" data-anchor-id="dense-recallk">Dense recall@k</h3>
+<p>Benchmark: 581 questions, exact ANN search (brute-force cosine, no HNSW), the layout-anchored ground truth from earlier in the post, k=100 retrieved per question. Code: <a href="https://github.com/leonnoirclerc/rag/tree/main/eval"><code>eval/</code></a>.</p>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://leonnoirclerc.github.io/posts/rag-on-a-laptop/embedder_recall_dense.png" class="img-fluid figure-img"></p>
+<figcaption>Dense recall@k for the four multilingual families, in fp16/bf16 and q8.</figcaption>
+</figure>
+</div>
+<p><code>Snowflake-arctic-embed-l-v2.0</code> leads at every k from 3 to 100.<code>Qwen3-4B</code> sits 1-2 recall points below it through k=10 to k=50. <code>Qwen3-0.6B</code> and <code>bge-m3</code> are tied with each other and trail the leaders by 4-5 points at k=10. The q8 (dashed) lines track the full-precision ones within 0.5-1 recall point everywhere.</p>
+<p>We chose to keep <code>Snowflake-arctic-embed-l-v2.0</code>.</p>
+</section>
+<section id="hybrid-retrieval" class="level3">
+<h3 class="anchored" data-anchor-id="hybrid-retrieval">Hybrid retrieval</h3>
+<p>Hybrid retrieval is the next chapter, but the embedder pick should hold up under both modes, so a preview is useful here.</p>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://leonnoirclerc.github.io/posts/rag-on-a-laptop/embedder_recall_hybrid.png" class="img-fluid figure-img"></p>
+<figcaption>Dense vs hybrid recall@k, one panel per family. Hybrid = dense + Qdrant BM25, RRF-fused.</figcaption>
+</figure>
+</div>
+<p>Recall@10 with the BM25 leg added:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>family</th>
+<th style="text-align: right;">dense r@10</th>
+<th style="text-align: right;">hybrid r@10</th>
+<th style="text-align: right;">lift</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>bge-m3</td>
+<td style="text-align: right;">72.5 %</td>
+<td style="text-align: right;">76.5 %</td>
+<td style="text-align: right;">+4.0</td>
+</tr>
+<tr class="even">
+<td>Qwen3-0.6B</td>
+<td style="text-align: right;">72.9 %</td>
+<td style="text-align: right;">77.8 %</td>
+<td style="text-align: right;">+4.9</td>
+</tr>
+<tr class="odd">
+<td>Qwen3-4B</td>
+<td style="text-align: right;">75.4 %</td>
+<td style="text-align: right;">77.7 %</td>
+<td style="text-align: right;">+2.3</td>
+</tr>
+<tr class="even">
+<td>snowflake-arctic-l-v2</td>
+<td style="text-align: right;">76.5 %</td>
+<td style="text-align: right;">78.9 %</td>
+<td style="text-align: right;">+2.4</td>
+</tr>
+</tbody>
+</table>
+<p>Hybrid lifts every family, and lifts the weaker dense retrievers more. The rank order across families is unchanged after fusion. The embedder choice is robust to retrieval mode.</p>
+<p>We keep <code>Snowflake-arctic-embed-l-v2.0</code> with BM25 hybrid search</p>
+</section>
+<section id="quantization" class="level3">
+<h3 class="anchored" data-anchor-id="quantization">Quantization</h3>
+<p>A 568 M model in bf16 is 1.1 GB on disk. The q8 version is 576 MB. On a 16 GB machine where the pipeline already holds the rest of the pipeline, halving the embedder’s memory footprint is real headroom.</p>
+<p>The recall cost at k=10 is at most 0.7 points across the four families, and closes to nothing by k=50. Quality-wise, q8 is free.</p>
+<p>We chose <code>Snowflake-arctic-embed-l-v2.0</code> quantized to 8 bits with BM25 hybrid search.</p>
+</section>
+<section id="indexing-speed" class="level3">
+<h3 class="anchored" data-anchor-id="indexing-speed">Indexing speed</h3>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://leonnoirclerc.github.io/posts/rag-on-a-laptop/embedder_speed_vs_recall.png" class="img-fluid figure-img"></p>
+<figcaption>Indexing throughput vs dense recall@10. Top-right wins.</figcaption>
+</figure>
+</div>
+<p>The 568 M and 600 M models index in well under a minute for the 581-paragraph corpus (800-3000 tokens/second, depending on family and precision). <code>Qwen3-4B</code> is roughly 10× slower (~180 tokens/second; about six minutes to re-index the corpus). At the 100k-paragraph scale a real-world corpus would have, that is the difference between an embed step that takes a few minutes and one that takes an hour.</p>
+<p>q8 is not uniformly faster than full precision on MLX. It is faster for <code>Snowflake</code> (1.1×), slightly slower for <code>bge-m3</code> and <code>Qwen3-4B</code>, and noticeably slower for<code>Qwen3-0.6B</code> (2.5× slower). The gap depends on which architecture has a fully-vectorised dequantisation path in <code>mlx-embeddings</code> at this version, and is the kind of thing that closes upstream as more families get tuned. For now: treat q8 as a memory and disk win, not a speed win.</p>
+<p>The cleanest Pareto point on the chart is <code>snowflake-arctic-l-v2 q8</code>: best recall@10 of any sub-1B variant, fastest throughput of any sub-1B variant.</p>
+</section>
+<section id="the-pick" class="level3">
+<h3 class="anchored" data-anchor-id="the-pick">The pick</h3>
+<p><strong>snowflake-arctic-embed-l-v2.0, q8.</strong> Tops dense recall at every k tested, tops hybrid recall too, shares the 568 M size class with <code>bge-m3</code>, and the q8 quantisation gives us a 576 MB on-disk footprint with no big quality cost.</p>
+</section>
+</section>
+<section id="reranking" class="level2">
+<h2 class="anchored" data-anchor-id="reranking">Reranking</h2>
+<p>The next logical step after hybrid retrieval is <strong>reranking</strong>: take the top-K candidates from the prefetch and re-score them with a more expensive but more accurate model. The usual reranker family is the cross-encoder. One model, taking a (query, document) pair, emits a relevance score. The catch is cost. A cross-encoder makes one full forward pass per candidate, and competitive multilingual cross-encoders are 500M+ parameters. With top-K=50, that is 50 forwards through a heavy model per query. Our latency budget is sub-second total; a cross-encoder rerank alone would blow that.</p>
+<p><strong>Late-interaction (ColBERT-style) reranking</strong> offers a different trade-off. Each document is encoded once into a sequence of per-token vectors at index time and stored on disk. At query time, the query is encoded the same way, and the score is a cheap MaxSim aggregation over per-token similarities. The work the cross-encoder pays per-pair at query time is amortised at index time, paid once per document. The model size is similar but the per-query cost drops from “K model forwards” to “1 model forward + K small dot-product reductions”. That shape fits the latency budget. It is also why we already configured the late-interaction multi-vector field in Qdrant earlier in the post.</p>
+<section id="the-multilingual-options" class="level3">
+<h3 class="anchored" data-anchor-id="the-multilingual-options">The multilingual options</h3>
+<p>We considered two multilingual late-interaction models:</p>
+<ul>
+<li><a href="https://huggingface.co/jinaai/jina-colbert-v2"><code>jinaai/jina-colbert-v2</code></a>: 559 M parameters, 94 languages, 128-dim per-token vectors.</li>
+<li><a href="https://huggingface.co/BAAI/bge-m3">BAAI/bge-m3 multivector head</a>: the same bge-m3 we already load for dense, with its multi-vector head applied to per-token outputs. 1024-dim per token, eight times the storage and the MaxSim compute of jina. It is not Matryoshka-trained, so naively truncating to a comparable 128-d would discard most of the signal in unprincipled ways.</li>
+</ul>
+<p>We picked <strong>jina-colbert-v2</strong>: native low dim, training designed for the task, and the multilingual coverage is strictly broader than bge-m3’s.</p>
+<p>We ported jina-colbert-v2 to MLX (<a href="https://github.com/leonnoirclerc/rag/blob/main/src/rag/embedding/colbert.py"><code>src/rag/embedding/colbert.py</code></a>) on top of the same <code>xlm-roberta-rope</code> backbone we vendored from mlx-vlm. Storage trick: the multi-vector field in Qdrant has HNSW disabled (<code>hnsw_config.m=0</code>) and lives on disk. It is only ever scored exact-MaxSim against the candidates the prefetch returns, so building a graph would be wasted work.</p>
+</section>
+<section id="hit1-across-the-four-multilingual-families" class="level3">
+<h3 class="anchored" data-anchor-id="hit1-across-the-four-multilingual-families">Hit@1 across the four multilingual families</h3>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://leonnoirclerc.github.io/posts/rag-on-a-laptop/late_interaction_hit1.png" class="img-fluid figure-img"></p>
+<figcaption>Top-1 precision under dense, +BM25 hybrid, +ColBERT MaxSim rerank (jina-colbert-v2), and both stacked. The reranker here is jina-colbert-v2 in every case. Hybrid (light) is the best column for three of four families.</figcaption>
+</figure>
+</div>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>family</th>
+<th style="text-align: right;">dense</th>
+<th style="text-align: right;">hybrid</th>
+<th style="text-align: right;">+colbert</th>
+<th style="text-align: right;">hybrid+colbert</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>snowflake-l-v2</td>
+<td style="text-align: right;">67.5</td>
+<td style="text-align: right;"><strong>76.1</strong></td>
+<td style="text-align: right;">73.1</td>
+<td style="text-align: right;">73.1</td>
+</tr>
+<tr class="even">
+<td>Qwen3-4B</td>
+<td style="text-align: right;">68.7</td>
+<td style="text-align: right;"><strong>74.5</strong></td>
+<td style="text-align: right;">72.5</td>
+<td style="text-align: right;">73.1</td>
+</tr>
+<tr class="odd">
+<td>Qwen3-0.6B</td>
+<td style="text-align: right;">70.6</td>
+<td style="text-align: right;"><strong>75.4</strong></td>
+<td style="text-align: right;">72.8</td>
+<td style="text-align: right;">72.8</td>
+</tr>
+<tr class="even">
+<td>bge-m3</td>
+<td style="text-align: right;">68.5</td>
+<td style="text-align: right;">72.3</td>
+<td style="text-align: right;"><strong>73.1</strong></td>
+<td style="text-align: right;">73.1</td>
+</tr>
+</tbody>
+</table>
+<p><strong>jina-colbert-v2 does not improve our retrieval.</strong> Hybrid alone wins on three of four families. The one family where ColBERT helps (bge-m3) gains less than a point. Stacking ColBERT on top of hybrid ties “+ColBERT alone” in every family, which means the BM25 leg surfaces candidates that ColBERT then deranks back. The two scoring systems are not stacking; they are trading.</p>
+<p>The full metric table on snowflake-l-v2 (our picked embedder):</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 11%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>variant</th>
+<th style="text-align: right;">hit@1</th>
+<th style="text-align: right;">hit@5</th>
+<th style="text-align: right;">hit@10</th>
+<th style="text-align: right;">recall@10</th>
+<th style="text-align: right;">mrr</th>
+<th style="text-align: right;">ndcg@10</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>hybrid (no rerank)</td>
+<td style="text-align: right;"><strong>73.8</strong></td>
+<td style="text-align: right;"><strong>92.5</strong></td>
+<td style="text-align: right;"><strong>96.2</strong></td>
+<td style="text-align: right;"><strong>78.9</strong></td>
+<td style="text-align: right;"><strong>82.1</strong></td>
+<td style="text-align: right;"><strong>71.6</strong></td>
+</tr>
+<tr class="even">
+<td>hybrid + ColBERT</td>
+<td style="text-align: right;">73.1</td>
+<td style="text-align: right;">91.9</td>
+<td style="text-align: right;">95.4</td>
+<td style="text-align: right;">76.3</td>
+<td style="text-align: right;">81.4</td>
+<td style="text-align: right;">69.8</td>
+</tr>
+</tbody>
+</table>
+<p>Two failure examples make the mechanism concrete. Both are queries where snowflake-hybrid had the right paragraph at rank 1 and ColBERT then demoted it.</p>
+<blockquote class="blockquote">
+<p><strong>Q:</strong> <em>“What two-stage process does DeepSeek-V4-Flash follow when introducing sparse attention during training, and at what sequence length and token count is sparsity first activated?”</em></p>
+<p><strong>Hybrid rank 1 (correct):</strong> the training-recipe paragraph with the sparsity schedule and the token-count cutoffs.</p>
+<p><strong>ColBERT rank 1 (wrong):</strong> the paper’s abstract, which mentions “DeepSeek-V4-Flash”, “sparse attention”, and “training” multiple times but does not answer the specific question.</p>
+<p>Right answer demoted to rank 16.</p>
+<p><strong>Why ColBERT failed here.</strong> The abstract has many tokens that match the query’s topic words. MaxSim sums those matches, so the abstract scores high. The specific training paragraph mentions the same topic words fewer times and loses on token count, even though it actually contains the answer.</p>
+</blockquote>
+<blockquote class="blockquote">
+<p><strong>Q:</strong> <em>“How are the authors of the DeepSeek-V4 paper listed, and what does the asterisk (</em>) notation next to certain author names indicate?“*</p>
+<p><strong>Hybrid rank 1 (correct):</strong> the two-sentence answer, exactly: <em>“Authors are listed alphabetically by their first name. Names marked with * denote individuals who have departed from our team.”</em></p>
+<p><strong>ColBERT rank 1 (wrong):</strong> an unrelated paragraph about Mixture-of-Experts architecture that happens to mention “DeepSeek-V4”.</p>
+<p>Right answer demoted to rank 8.</p>
+<p><strong>Why ColBERT failed here.</strong> The right answer is short, about 25 tokens. MaxSim’s score scales with the number of high-similarity doc tokens, so short answers are systematically under-scored. The long MoE paragraph wins on token count.</p>
+</blockquote>
+<p>The pattern across the 41 cases where ColBERT demoted the right answer is consistent: it rewards token-rich generic content; BM25’s IDF weighting rewards rare-word matches that pinpoint specific answers. On a corpus of short technical paragraphs answering specific questions, hybrid retrieval is the right tool. ColBERT was built for a different corpus shape.</p>
+</section>
+<section id="what-we-ship" class="level3">
+<h3 class="anchored" data-anchor-id="what-we-ship">What we ship</h3>
+<p>The retrieval pipeline stops at <strong>dense + BM25 with RRF fusion</strong>. ColBERT MaxSim does not earn its keep on this corpus, and stacking it on top of hybrid does not help in any family. We keep the MLX <code>jina-colbert-v2</code> port in the codebase as a documented building block. If the corpus later shifts to long documents or to an out-of-domain mix, this is the obvious next thing to revisit.</p>
+<hr>
+<p><strong>Code state at time of writing:</strong> <a href="https://github.com/leonnoirclerc/rag/commit/d72e8993f047c6b559062edfb7e5156299e8f33c"><code>d72e899</code></a>. <strong>Reproduce the parsing numbers:</strong> <code>uv run python -m benchmark.pdf_pipeline --variants codeformulav2_mlx</code>. <strong>Reproduce the embedder + late-interaction sweeps:</strong> <code>uv run python -m eval.sweep</code>.</p>
 
 
 <!-- -->
 
 </section>
+</section>
 
  ]]></description>
-  <category>meta</category>
-  <guid>https://leonnoirclerc.github.io/posts/welcome/</guid>
-  <pubDate>Mon, 11 May 2026 00:00:00 GMT</pubDate>
+  <category>rag-laptop</category>
+  <guid>https://leonnoirclerc.github.io/posts/rag-on-a-laptop/</guid>
+  <pubDate>Mon, 18 May 2026 00:00:00 GMT</pubDate>
+  <media:content url="https://leonnoirclerc.github.io/posts/rag-on-a-laptop/pipeline.svg" medium="image" type="image/svg+xml"/>
 </item>
 </channel>
 </rss>
