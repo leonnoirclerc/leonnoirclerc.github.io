@@ -1,6 +1,10 @@
 # leonnoirclerc.github.io
 
-Personal site — research notes, experiments, and projects. Built with [Quarto](https://quarto.org), deployed to GitHub Pages via Actions.
+[![Deploy](https://github.com/leonnoirclerc/leonnoirclerc.github.io/actions/workflows/publish.yml/badge.svg)](https://leonnoirclerc.github.io)
+
+> **My personal website is live at → <https://leonnoirclerc.github.io>**
+
+Source code for my personal site — research notes, experiments, and projects. Built with [Quarto](https://quarto.org), deployed to GitHub Pages via Actions.
 
 ## Local development
 
